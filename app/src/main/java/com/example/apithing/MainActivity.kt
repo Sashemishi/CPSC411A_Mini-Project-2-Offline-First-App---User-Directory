@@ -1,5 +1,6 @@
-package com.example.userdirectory
+package com.example.apithing
 
+import android.content.Context
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -13,6 +14,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.viewModelScope
 import androidx.room.*
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -20,9 +22,29 @@ import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import retrofit2.http.GET
 
-// ---------------------------------------------------------
-// ROOM DATABASE
-// ---------------------------------------------------------
+class MainActivity : ComponentActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+
+        val api = RetrofitClient.create()
+        val db = AppDatabase.getInstance(applicationContext)
+        val repo = UserRepository(api, db.userDao())
+
+        val factory = object : ViewModelProvider.Factory {
+            @Suppress("UNCHECKED_CAST")
+            override fun <T : ViewModel> create(modelClass: Class<T>): T {
+                return UserViewModel(repo) as T
+            }
+        }
+
+
+        setContent {
+            val vm: UserViewModel = viewModel(factory = factory)
+            UsersScreen(vm)
+        }
+    }
+}
+
 @Entity(tableName = "users")
 data class UserEntity(
     @PrimaryKey val id: Int,
@@ -50,20 +72,20 @@ abstract class AppDatabase : RoomDatabase() {
     companion object {
         @Volatile private var INSTANCE: AppDatabase? = null
 
-        fun getInstance(context: android.content.Context): AppDatabase =
+        fun getInstance(context: Context): AppDatabase =
             INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
                     context.applicationContext,
                     AppDatabase::class.java,
                     "users.db"
-                ).build().also { INSTANCE = it }
+                )
+                    .fallbackToDestructiveMigration(false)
+                    .build()
+                    .also { INSTANCE = it }
             }
     }
 }
 
-// ---------------------------------------------------------
-// RETROFIT
-// ---------------------------------------------------------
 data class UserNetwork(
     val id: Int,
     val name: String,
@@ -86,9 +108,6 @@ object RetrofitClient {
     }
 }
 
-// ---------------------------------------------------------
-// REPOSITORY
-// ---------------------------------------------------------
 class UserRepository(
     private val api: ApiService,
     private val dao: UserDao
@@ -110,9 +129,6 @@ class UserRepository(
     }
 }
 
-// ---------------------------------------------------------
-// VIEWMODEL
-// ---------------------------------------------------------
 class UserViewModel(private val repo: UserRepository) : ViewModel() {
 
     private val searchQuery = MutableStateFlow("")
@@ -133,12 +149,9 @@ class UserViewModel(private val repo: UserRepository) : ViewModel() {
     }
 }
 
-// ---------------------------------------------------------
-// UI
-// ---------------------------------------------------------
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun UsersScreen(vm: UserViewModel = viewModel()) {
+fun UsersScreen(vm: UserViewModel) {   // 🔥 FIX #2 — removed extra viewModel()
     val users by vm.users.collectAsState()
     var search by remember { mutableStateOf("") }
 
@@ -169,30 +182,6 @@ fun UsersScreen(vm: UserViewModel = viewModel()) {
                     }
                 }
             }
-        }
-    }
-}
-
-// ---------------------------------------------------------
-// MAIN ACTIVITY (single-file app entry point)
-// ---------------------------------------------------------
-class MainActivity : ComponentActivity() {
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-
-        val api = RetrofitClient.create()
-        val db = AppDatabase.getInstance(applicationContext)
-        val repo = UserRepository(api, db.userDao())
-
-        val factory = object : ViewModelProvider.Factory {
-            override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                return UserViewModel(repo) as T
-            }
-        }
-
-        setContent {
-            val vm: UserViewModel = viewModel(factory = factory)
-            UsersScreen(vm)
         }
     }
 }
